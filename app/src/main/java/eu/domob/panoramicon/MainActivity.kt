@@ -5,12 +5,13 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.TextView
-import android.widget.Toast
+
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,6 +27,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loadingProgress: ProgressBar
     private lateinit var loadingText: TextView
     private lateinit var errorText: TextView
+    private var isSystemUIVisible = false
+    private lateinit var gestureDetector: GestureDetector
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,6 +41,9 @@ class MainActivity : AppCompatActivity() {
         loadingText = findViewById(R.id.loading_text)
         errorText = findViewById(R.id.error_text)
 
+        // Enable edge-to-edge display
+        enableEdgeToEdge()
+        
         // Hide system UI for fullscreen immersive experience
         hideSystemUI()
 
@@ -54,6 +60,14 @@ class MainActivity : AppCompatActivity() {
             isAcceleratedTouchScrollingEnabled = true
         }
 
+        // Set up gesture detector for single tap detection
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                toggleSystemUI()
+                return true
+            }
+        })
+
         // Handle intent (image sharing/opening)
         handleIntent(intent)
     }
@@ -66,7 +80,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleIntent(intent: Intent) {
         when (intent.action) {
             Intent.ACTION_VIEW, Intent.ACTION_SEND -> {
-                val uri = intent.data ?: intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                val uri = intent.data ?: intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
                 uri?.let { loadPanoramaFromUri(it) }
             }
             else -> {
@@ -129,17 +143,40 @@ class MainActivity : AppCompatActivity() {
         errorText.visibility = View.GONE
     }
 
-    private fun hideSystemUI() {
+    private fun enableEdgeToEdge() {
+        // Simple edge-to-edge setup
         WindowCompat.setDecorFitsSystemWindows(window, false)
+    }
+
+    private fun hideSystemUI() {
         WindowInsetsControllerCompat(window, panoramaContainer).let { controller ->
+            // Hide both status bar and navigation bar
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        isSystemUIVisible = false
+    }
+
+    private fun showSystemUI() {
+        WindowInsetsControllerCompat(window, panoramaContainer).let { controller ->
+            // Show both status bar and navigation bar
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+        isSystemUIVisible = true
+    }
+
+    private fun toggleSystemUI() {
+        if (isSystemUIVisible) {
+            hideSystemUI()
+        } else {
+            showSystemUI()
         }
     }
 
     override fun onResume() {
         super.onResume()
         plManager.onResume()
+        enableEdgeToEdge()
         hideSystemUI()
     }
 
@@ -154,12 +191,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        return plManager.onTouchEvent(event) || super.onTouchEvent(event)
+        // First, let the gesture detector check for single taps
+        val gestureHandled = gestureDetector.onTouchEvent(event)
+        
+        // If it wasn't a single tap, pass the event to the panorama manager
+        val panoramaHandled = if (!gestureHandled) {
+            plManager.onTouchEvent(event)
+        } else {
+            false
+        }
+        
+        return gestureHandled || panoramaHandled || super.onTouchEvent(event)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
+            enableEdgeToEdge()
             hideSystemUI()
         }
     }
