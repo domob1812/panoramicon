@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Panoramicon</string>
+    <string name="loading_panorama">Loading panorama…</string>
+    <string name="error_loading_image">Failed to load image.\nPlease try with a different panoramic image.</string>
+</resources>
