@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var errorText: TextView
     private var isSystemUIVisible = false
     private lateinit var gestureDetector: GestureDetector
+    private var wasInertiaActiveOnTouch = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,7 +65,11 @@ class MainActivity : AppCompatActivity() {
         // Set up gesture detector for single tap detection
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                toggleSystemUI()
+                // Only toggle system UI if inertia was not active when touch began
+                // This prevents UI toggle when tapping to stop inertia
+                if (!wasInertiaActiveOnTouch) {
+                    toggleSystemUI()
+                }
                 return true
             }
         })
@@ -192,6 +197,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Capture inertia state before PLManager processes the touch
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            wasInertiaActiveOnTouch = plManager.isValidForInertia()
+        }
+        
         // First, let the gesture detector check for single taps
         val gestureHandled = gestureDetector.onTouchEvent(event)
         
