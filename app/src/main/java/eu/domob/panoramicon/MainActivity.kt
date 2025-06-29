@@ -57,7 +57,8 @@ class MainActivity : AppCompatActivity() {
             isInertiaEnabled = true
             isZoomEnabled = true
             isScrollingEnabled = true
-            isAcceleratedTouchScrollingEnabled = true
+            isVerticalScrollingEnabled = false
+            isAcceleratedTouchScrollingEnabled = false
         }
 
         // Set up gesture detector for single tap detection
