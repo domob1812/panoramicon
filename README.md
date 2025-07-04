@@ -45,4 +45,6 @@ gradle assembleDebug
 
 ## Notes
 
-The app assumes input images are spherical panoramas (360° x 180°). Regular photos will display but may not look correct in the spherical viewer.
+The app assumes input images are spherical panoramas in
+equirectangular projection (360° x 180°). Regular photos may display but
+will not look correct in the viewer.
