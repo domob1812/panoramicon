@@ -8,6 +8,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
+import android.opengl.Matrix
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -26,7 +27,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.panoramagl.*
 import java.io.InputStream
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private lateinit var plManager: PLManager
     private lateinit var panoramaContainer: RelativeLayout
@@ -37,6 +38,9 @@ class MainActivity : AppCompatActivity() {
     private var isSystemUIVisible = false
     private lateinit var gestureDetector: GestureDetector
     private var wasInertiaActiveOnTouch = false
+
+    private lateinit var sensorManager: SensorManager
+    private var rotationSensor: Sensor? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,17 +64,13 @@ class MainActivity : AppCompatActivity() {
             setContentView(panoramaContainer)
             onCreate()
             
-            // Configure panorama settings - all rotation disabled
-            isAccelerometerEnabled = false
-            isInertiaEnabled = false
-            isZoomEnabled = false
-            isScrollingEnabled = false
-            isVerticalScrollingEnabled = false
-            isAcceleratedTouchScrollingEnabled = false
-            
             // Stop any sensorial rotation that might be active
             stopSensorialRotation()
         }
+
+        // Initialize sensors
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
         // Set up gesture detector for single tap detection
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -122,16 +122,7 @@ class MainActivity : AppCompatActivity() {
                 // Set panorama first (this may reset/create camera)
                 plManager.panorama = panorama
                 
-                // Configure camera rotation matrix AFTER panorama is set
-                // Custom Euler angles (in degrees) - modify these to experiment
-                val yaw = 180f    // Rotation around "up" axis
-                val pitch = -45f  // Rotation around "left/right" axis
-                val roll = 10f   // Rotation around "forward" axis
-                
-                // Build and set rotation matrix from Euler angles
-                val rotationMatrix = buildRotationMatrix(yaw, pitch, roll)
                 val camera = plManager.camera as PLCamera
-                camera.setRotationMatrix(rotationMatrix)
                 camera.zoomFactor = 0.7f
                 
                 hideLoading()
@@ -199,9 +190,13 @@ class MainActivity : AppCompatActivity() {
         plManager.onResume()
         enableEdgeToEdge()
         hideSystemUI()
+        rotationSensor?.also { sensor ->
+            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+        }
     }
 
     override fun onPause() {
+        sensorManager.unregisterListener(this)
         plManager.onPause()
         super.onPause()
     }
@@ -225,65 +220,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildRotationMatrix(yaw: Float, pitch: Float, roll: Float): FloatArray {
-        // Convert degrees to radians
-        val yawRad = Math.toRadians(yaw.toDouble()).toFloat()
-        val pitchRad = Math.toRadians(pitch.toDouble()).toFloat()
-        val rollRad = Math.toRadians(roll.toDouble()).toFloat()
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+            val tempMatrix = FloatArray(16)
+            SensorManager.getRotationMatrixFromVector(tempMatrix, event.values)
+            /* Mathematically we need to transpose here, but the matrix
+               convention (row-major vs column-major) between the orientation
+               sensor and OpenGL already accounts for this.  */
 
-        // Build individual rotation matrices
-        val yawMatrix = createYRotationMatrix(yawRad)
-        val pitchMatrix = createXRotationMatrix(pitchRad)
-        val rollMatrix = createZRotationMatrix(rollRad)
+            /* Apply correction to map device upright+north to panorama forward.
+               180° rotation around Y to fix coordinate system.  */
+            val axesCorrection = FloatArray(16)
+            Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
+            
+            /* 90° pitch around X to tilt from zenith to horizon and 180° yaw
+               to align the device orientation coordinate system with the scene
+               coordinate system in their natural positions.  */
+            val pitchRot = FloatArray(16)
+            Matrix.setRotateM(pitchRot, 0, -90f, 1f, 0f, 0f)
+            val yawRot = FloatArray(16)
+            Matrix.setRotateM(yawRot, 0, 180f, 0f, 1f, 0f)
+            val viewCorrection = FloatArray(16)
+            Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
+            
+            val intermediate = FloatArray(16)
+            Matrix.multiplyMM(intermediate, 0, axesCorrection, 0, tempMatrix, 0)
+            val rotationMatrix = FloatArray(16)
+            Matrix.multiplyMM(rotationMatrix, 0, intermediate, 0, viewCorrection, 0)
 
-        // Combine: R = R_yaw * R_pitch * R_roll
-        val temp = multiplyMatrices(pitchMatrix, rollMatrix)
-        return multiplyMatrices(yawMatrix, temp)
-    }
-
-    private fun createXRotationMatrix(angle: Float): FloatArray {
-        val cos = kotlin.math.cos(angle)
-        val sin = kotlin.math.sin(angle)
-        return floatArrayOf(
-            1f, 0f,  0f,   0f,
-            0f, cos, -sin, 0f,
-            0f, sin, cos,  0f,
-            0f, 0f,  0f,   1f
-        )
-    }
-
-    private fun createYRotationMatrix(angle: Float): FloatArray {
-        val cos = kotlin.math.cos(angle)
-        val sin = kotlin.math.sin(angle)
-        return floatArrayOf(
-            cos,  0f, sin, 0f,
-            0f,   1f, 0f,  0f,
-            -sin, 0f, cos, 0f,
-            0f,   0f, 0f,  1f
-        )
-    }
-
-    private fun createZRotationMatrix(angle: Float): FloatArray {
-        val cos = kotlin.math.cos(angle)
-        val sin = kotlin.math.sin(angle)
-        return floatArrayOf(
-            cos, -sin, 0f, 0f,
-            sin, cos,  0f, 0f,
-            0f,  0f,   1f, 0f,
-            0f,  0f,   0f, 1f
-        )
-    }
-
-    private fun multiplyMatrices(a: FloatArray, b: FloatArray): FloatArray {
-        val result = FloatArray(16)
-        for (i in 0..3) {
-            for (j in 0..3) {
-                result[i * 4 + j] = 0f
-                for (k in 0..3) {
-                    result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j]
-                }
+            if (::plManager.isInitialized) {
+                (plManager.camera as? PLCamera)?.setRotationMatrix(rotationMatrix)
             }
         }
-        return result
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
     }
 }
