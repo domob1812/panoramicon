@@ -66,6 +66,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             
             // Stop any sensorial rotation that might be active
             stopSensorialRotation()
+            
+            // Enable PLManager's built-in pinch-to-zoom
+            setZoomEnabled(true)
+            
+            // Disable scrolling (we use orientation sensor for camera control)
+            setScrollingEnabled(false)
         }
 
         // Initialize sensors
@@ -207,7 +213,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Only handle gesture detection for UI toggle
+        // Only pass multi-touch events to PLManager (for pinch-to-zoom)
+        // Single-finger touches are handled by gestureDetector for UI toggle
+        if (event.pointerCount >= 2) {
+            plManager.onTouchEvent(event)
+            return true
+        }
+        
         val gestureHandled = gestureDetector.onTouchEvent(event)
         return gestureHandled || super.onTouchEvent(event)
     }
