@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
+    private var initialYaw: Float? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,6 +131,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 
                 val camera = plManager.camera as PLCamera
                 camera.zoomFactor = 0.7f
+                
+                // Reset initial yaw so it gets recaptured on first sensor update
+                initialYaw = null
                 
                 hideLoading()
                 hideError()
@@ -245,13 +249,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val axesCorrection = FloatArray(16)
             Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
             
-            /* 90° pitch around X to tilt from zenith to horizon and 180° yaw
-               to align the device orientation coordinate system with the scene
-               coordinate system in their natural positions.  */
+            /* Capture initial yaw on first sensor reading */
+            if (initialYaw == null) {
+                val orientation = FloatArray(3)
+                SensorManager.getOrientation(tempMatrix, orientation)
+                initialYaw = Math.toDegrees(orientation[0].toDouble()).toFloat()
+            }
+            
+            /* 90° pitch around X to tilt from zenith to horizon and yaw rotation
+               to align the initial device pointing direction with scene forward.  */
             val pitchRot = FloatArray(16)
-            Matrix.setRotateM(pitchRot, 0, -90f, 1f, 0f, 0f)
+            Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
             val yawRot = FloatArray(16)
-            Matrix.setRotateM(yawRot, 0, 180f, 0f, 1f, 0f)
+            Matrix.setRotateM(yawRot, 0, 180f - initialYaw!!, 0f, 0f, 1f)
             val viewCorrection = FloatArray(16)
             Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
             
