@@ -43,10 +43,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var rotationSensor: Sensor? = null
     private var yawOffset: Float = 0f
     private var isYawOffsetInitialized = false
+    private var currentRotationMatrix: FloatArray? = null
 
     private var swipeStartX = 0f
+    private var swipeStartY = 0f
     private var swipeEndX = 0f
+    private var swipeEndY = 0f
     private var isScrolling = false
+    private var lastHorizonDirection: FloatArray? = null
     private var wasMultiTouch = false
     private val inertiaHandler = Handler(Looper.getMainLooper())
     private var inertiaRunnable: Runnable? = null
@@ -102,8 +106,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             override fun onDown(e: MotionEvent): Boolean {
                 stopInertia()
                 swipeStartX = e.x
+                swipeStartY = e.y
                 swipeEndX = e.x
+                swipeEndY = e.y
                 isScrolling = false
+                lastHorizonDirection = null
                 return true
             }
 
@@ -113,13 +120,21 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     return false
                 }
                 
+                // Compute horizon direction from current device orientation
+                val horizonDir = getHorizonDirection(currentRotationMatrix)
+                if (horizonDir == null) {
+                    // Degenerate case: device pointing straight up/down, disable scrolling
+                    return true
+                }
+                
                 isScrolling = true
                 swipeEndX = e2.x
+                swipeEndY = e2.y
+                lastHorizonDirection = horizonDir
                 
-                // Calculate yaw change based on horizontal movement
-                // distanceX is positive when swiping left, negative when swiping right
-                // Invert: swipe right -> panorama rotates right (view moves left)
-                val deltaX = distanceX
+                // Project swipe onto horizon direction
+                // Note: distanceX/Y is positive when swiping left/up, negative when swiping right/down
+                val horizontalSwipe = distanceX * horizonDir[0] + distanceY * horizonDir[1]
                 
                 // Scale by current FoV - smaller FoV (zoomed in) means more sensitive rotation
                 val camera = plManager.camera as? PLCamera
@@ -127,7 +142,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 val sensitivity = fovFactor / 70f // Normalize to default FoV
                 
                 // Apply rotation: roughly 0.1 degree per pixel at default FoV
-                val yawChange = deltaX * 0.1f * sensitivity
+                val yawChange = horizontalSwipe * 0.1f * sensitivity
                 yawOffset += yawChange
                 
                 return true
@@ -291,23 +306,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         
         // Start inertia when touch ends after scrolling
         if (event.actionMasked == MotionEvent.ACTION_UP && isScrolling) {
-            val deltaX = swipeEndX - swipeStartX
-            if (kotlin.math.abs(deltaX) > 10f) {
-                startInertia(deltaX)
+            val horizonDir = lastHorizonDirection
+            if (horizonDir != null) {
+                val deltaX = swipeEndX - swipeStartX
+                val deltaY = swipeEndY - swipeStartY
+                val horizontalDelta = -(deltaX * horizonDir[0] + deltaY * horizonDir[1])
+                if (kotlin.math.abs(horizontalDelta) > 10f) {
+                    startInertia(horizontalDelta)
+                }
             }
         }
         
         return gestureHandled || super.onTouchEvent(event)
     }
 
-    private fun startInertia(initialVelocityX: Float) {
+    private fun startInertia(horizontalDisplacement: Float) {
         stopInertia()
         
         // Scale velocity based on FoV
-        // Note: initialVelocityX is positive when swiping right, negative when swiping left
         val camera = plManager.camera as? PLCamera
         val fovFactor = (camera?.fov ?: 70f) / 70f
-        inertiaVelocity = -initialVelocityX * 0.3f * fovFactor
+        inertiaVelocity = horizontalDisplacement * 0.3f * fovFactor
         
         inertiaRunnable = object : Runnable {
             override fun run() {
@@ -346,10 +365,34 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
+    private fun getHorizonDirection(rotationMatrix: FloatArray?): FloatArray? {
+        if (rotationMatrix == null) return null
+        
+        // 4x4 matrix in column-major order: column i starts at index i*4
+        // World Z-axis (up) in device coordinates is the third column of R^T,
+        // which equals the third row of R. In column-major, row 2 elements are at indices 2, 6, 10.
+        val upX = rotationMatrix[8]
+        val upY = rotationMatrix[9]
+        
+        // Horizon is perpendicular to the up projection (rotate 90°)
+        // Note: screen Y points down (left-handed coords)
+        val horizonX = upY
+        val horizonY = upX
+        
+        val length = kotlin.math.sqrt(horizonX * horizonX + horizonY * horizonY)
+        
+        if (length < 0.001f) {
+            return null
+        }
+        
+        return floatArrayOf(horizonX / length, horizonY / length)
+    }
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
             val tempMatrix = FloatArray(16)
             SensorManager.getRotationMatrixFromVector(tempMatrix, event.values)
+            currentRotationMatrix = tempMatrix
             /* Mathematically we need to transpose here, but the matrix
                convention (row-major vs column-major) between the orientation
                sensor and OpenGL already accounts for this.  */
