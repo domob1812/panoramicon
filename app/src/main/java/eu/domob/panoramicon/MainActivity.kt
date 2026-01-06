@@ -41,7 +41,16 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
-    private var initialYaw: Float? = null
+    private var yawOffset: Float = 0f
+    private var isYawOffsetInitialized = false
+
+    private var swipeStartX = 0f
+    private var swipeEndX = 0f
+    private var isScrolling = false
+    private var wasMultiTouch = false
+    private val inertiaHandler = Handler(Looper.getMainLooper())
+    private var inertiaRunnable: Runnable? = null
+    private var inertiaVelocity = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +88,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-        // Set up gesture detector for single tap detection
+        // Set up gesture detector for tap and scroll detection
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 // Only toggle system UI if inertia was not active when touch began
@@ -89,7 +98,44 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
                 return true
             }
+
+            override fun onDown(e: MotionEvent): Boolean {
+                stopInertia()
+                swipeStartX = e.x
+                swipeEndX = e.x
+                isScrolling = false
+                return true
+            }
+
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+                // Don't scroll if multi-touch occurred at any point in this gesture
+                if (wasMultiTouch) {
+                    return false
+                }
+                
+                isScrolling = true
+                swipeEndX = e2.x
+                
+                // Calculate yaw change based on horizontal movement
+                // distanceX is positive when swiping left, negative when swiping right
+                // Invert: swipe right -> panorama rotates right (view moves left)
+                val deltaX = distanceX
+                
+                // Scale by current FoV - smaller FoV (zoomed in) means more sensitive rotation
+                val camera = plManager.camera as? PLCamera
+                val fovFactor = camera?.fov ?: 70f
+                val sensitivity = fovFactor / 70f // Normalize to default FoV
+                
+                // Apply rotation: roughly 0.1 degree per pixel at default FoV
+                val yawChange = deltaX * 0.1f * sensitivity
+                yawOffset += yawChange
+                
+                return true
+            }
         })
+
+        // Track inertia state for touch handling
+        gestureDetector.setIsLongpressEnabled(false)
 
         // Handle intent (image sharing/opening)
         handleIntent(intent)
@@ -132,8 +178,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 val camera = plManager.camera as PLCamera
                 camera.zoomFactor = 0.7f
                 
-                // Reset initial yaw so it gets recaptured on first sensor update
-                initialYaw = null
+                // Reset yaw offset so it gets recaptured on first sensor update
+                isYawOffsetInitialized = false
+                yawOffset = 0f
                 
                 hideLoading()
                 hideError()
@@ -217,15 +264,78 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Only pass multi-touch events to PLManager (for pinch-to-zoom)
-        // Single-finger touches are handled by gestureDetector for UI toggle
+        // Track inertia state
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            wasInertiaActiveOnTouch = (inertiaRunnable != null)
+        }
+
+        // Track multi-touch: once it occurs, disable scrolling for the rest of this gesture
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                wasMultiTouch = false
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                wasMultiTouch = true
+                stopInertia()
+            }
+        }
+
+        // Pass multi-touch events to PLManager for pinch-to-zoom
         if (event.pointerCount >= 2) {
             plManager.onTouchEvent(event)
             return true
         }
         
+        // Handle single-finger touches with gesture detector
         val gestureHandled = gestureDetector.onTouchEvent(event)
+        
+        // Start inertia when touch ends after scrolling
+        if (event.actionMasked == MotionEvent.ACTION_UP && isScrolling) {
+            val deltaX = swipeEndX - swipeStartX
+            if (kotlin.math.abs(deltaX) > 10f) {
+                startInertia(deltaX)
+            }
+        }
+        
         return gestureHandled || super.onTouchEvent(event)
+    }
+
+    private fun startInertia(initialVelocityX: Float) {
+        stopInertia()
+        
+        // Scale velocity based on FoV
+        // Note: initialVelocityX is positive when swiping right, negative when swiping left
+        val camera = plManager.camera as? PLCamera
+        val fovFactor = (camera?.fov ?: 70f) / 70f
+        inertiaVelocity = -initialVelocityX * 0.3f * fovFactor
+        
+        inertiaRunnable = object : Runnable {
+            override fun run() {
+                // Apply friction
+                inertiaVelocity *= 0.92f
+                
+                // Stop if velocity is too small
+                if (kotlin.math.abs(inertiaVelocity) < 0.5f) {
+                    stopInertia()
+                    return
+                }
+                
+                // Apply inertia rotation
+                yawOffset += inertiaVelocity * 0.1f
+                
+                // Continue inertia
+                inertiaHandler.postDelayed(this, 16) // ~60fps
+            }
+        }
+        inertiaHandler.postDelayed(inertiaRunnable!!, 16)
+    }
+
+    private fun stopInertia() {
+        inertiaRunnable?.let {
+            inertiaHandler.removeCallbacks(it)
+            inertiaRunnable = null
+        }
+        inertiaVelocity = 0f
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -249,19 +359,21 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val axesCorrection = FloatArray(16)
             Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
             
-            /* Capture initial yaw on first sensor reading */
-            if (initialYaw == null) {
+            /* Initialize yaw offset on first sensor reading */
+            if (!isYawOffsetInitialized) {
                 val orientation = FloatArray(3)
                 SensorManager.getOrientation(tempMatrix, orientation)
-                initialYaw = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                val initialYaw = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                yawOffset = -initialYaw  // Set initial offset to neutralize sensor yaw
+                isYawOffsetInitialized = true
             }
             
             /* 90° pitch around X to tilt from zenith to horizon and yaw rotation
-               to align the initial device pointing direction with scene forward.  */
+               that combines the initial device orientation with user swipe offset.  */
             val pitchRot = FloatArray(16)
             Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
             val yawRot = FloatArray(16)
-            Matrix.setRotateM(yawRot, 0, 180f - initialYaw!!, 0f, 0f, 1f)
+            Matrix.setRotateM(yawRot, 0, 180f + yawOffset, 0f, 0f, 1f)
             val viewCorrection = FloatArray(16)
             Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
             
