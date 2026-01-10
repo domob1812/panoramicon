@@ -41,7 +41,7 @@ gradle assembleDebug
 ## Package
 
 - Package name: `eu.domob.panoramicon`
-- Supports Android API 21+ (Android 5.0+)
+- Requires Android 13+ (API 33+)
 
 ## Notes
 
