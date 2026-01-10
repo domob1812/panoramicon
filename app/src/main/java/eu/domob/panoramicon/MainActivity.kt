@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private var swipeStartX = 0f
     private var swipeStartY = 0f
+    private var swipeStartTime = 0L
     private var swipeEndX = 0f
     private var swipeEndY = 0f
     private var isScrolling = false
@@ -107,6 +108,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 stopInertia()
                 swipeStartX = e.x
                 swipeStartY = e.y
+                swipeStartTime = System.currentTimeMillis()
                 swipeEndX = e.x
                 swipeEndY = e.y
                 isScrolling = false
@@ -304,10 +306,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         // Handle single-finger touches with gesture detector
         val gestureHandled = gestureDetector.onTouchEvent(event)
         
-        // Start inertia when touch ends after scrolling
+        // Start inertia when touch ends after scrolling (only for quick gestures)
         if (event.actionMasked == MotionEvent.ACTION_UP && isScrolling) {
+            val gestureDuration = System.currentTimeMillis() - swipeStartTime
             val horizonDir = lastHorizonDirection
-            if (horizonDir != null) {
+            if (horizonDir != null && gestureDuration < 300) {
                 val deltaX = swipeEndX - swipeStartX
                 val deltaY = swipeEndY - swipeStartY
                 val horizontalDelta = -(deltaX * horizonDir[0] + deltaY * horizonDir[1])
