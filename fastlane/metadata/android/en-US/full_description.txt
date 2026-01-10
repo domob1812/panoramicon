@@ -1,0 +1,13 @@
+Panoramicon is an immersive viewer for spherical panorama images (full 360×180° images in equirectangular projection). Simply tilt and rotate your device to naturally explore the panoramic scene around you.
+
+The app provides an intuitive, motion-controlled viewing experience that makes you feel like you're standing inside the photograph.
+
+Features:
+• Open panoramas by sharing images to the app or using "Open with"
+• Natural camera control using device orientation sensors
+• Pinch-to-zoom gesture support
+• Smooth scrolling with momentum/inertia
+• Lightweight and focused on the viewing experience
+• Fullscreen immersive mode (tap to toggle system UI)
+
+Perfect for viewing 360° photos from cameras, phones, or any equirectangular panorama image.

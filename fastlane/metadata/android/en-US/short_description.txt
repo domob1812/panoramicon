@@ -1,0 +1,1 @@
+View 360° spherical panoramas using your device's motion sensors

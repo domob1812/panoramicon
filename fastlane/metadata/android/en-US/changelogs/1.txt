@@ -1,0 +1,8 @@
+Initial release of Panoramicon.
+
+Features:
+• Open spherical panoramas by opening or sharing to the app
+• Natural camera control using device orientation sensors
+• Pinch-to-zoom gesture support
+• Smooth scrolling with momentum/inertia
+• Fullscreen immersive viewing experience
