@@ -295,8 +295,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             }
         }
 
-        // Pass multi-touch events to PLManager for pinch-to-zoom
-        if (event.pointerCount >= 2) {
+        // Pass only 2-finger events to PLManager for pinch-to-zoom
+        if (event.pointerCount == 2) {
             plManager.onTouchEvent(event)
             return true
         }
