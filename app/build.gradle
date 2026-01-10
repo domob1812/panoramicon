@@ -37,5 +37,5 @@ dependencies {
     implementation "androidx.core:core-ktx:1.17.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "com.google.android.material:material:1.12.0"
-    implementation "com.github.hannesa2:panoramaGL:1063bc6ef16e71ceb0f757c6eb87e90346360c17"
+    implementation project(':panoramaGL')
 }

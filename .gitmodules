@@ -1,0 +1,3 @@
+[submodule "panoramaGL"]
+	path = panoramaGL
+	url = https://github.com/hannesa2/panoramaGL.git

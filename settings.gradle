@@ -16,4 +16,6 @@ dependencyResolutionManagement {
 }
 
 include ':app'
+include ':panoramaGL'
+project(':panoramaGL').projectDir = new File('panoramaGL/library')
 rootProject.name = "Panoramicon"
