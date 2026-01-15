@@ -24,6 +24,18 @@ The app registers to handle image viewing intents, so you can:
 - **Pinch**: Zoom in/out
 - **Motion**: Tilt your device to look around (if accelerometer is enabled)
 
+## Example Images
+
+If you're looking for example panoramic images to use with the app, Wikimedia Commons
+has a large collection of freely licensed spherical panoramas available under
+Creative Commons licenses. You can browse and download images from:
+
+- [Spherical panoramas category](https://commons.wikimedia.org/wiki/Category:Spherical_panoramas) - A wide collection of panoramas from various contributors
+- [Spherical panoramics by Domob](https://commons.wikimedia.org/wiki/Category:Spherical_panoramics_by_Domob) - Panoramas contributed by the app developer
+
+Simply download any equirectangular panorama image and open it with Panoramicon
+to explore it in full 360° view.
+
 ## Building
 
 This is a standard Android project. To build:
