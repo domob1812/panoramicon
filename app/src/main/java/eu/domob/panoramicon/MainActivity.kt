@@ -20,6 +20,7 @@ package eu.domob.panoramicon
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -267,32 +268,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun loadPanoramaFromUri(uri: Uri) {
         showLoading()
-        
         try {
             val inputStream: InputStream? = contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close()
-
-            if (bitmap != null) {
-                // Create spherical panorama
-                val panorama = PLSphericalPanorama()
-                panorama.setImage(PLImage(bitmap, false))
-
-                // Set panorama first (this may reset/create camera)
-                plManager.panorama = panorama
-                
-                val camera = plManager.camera as PLCamera
-                camera.zoomFactor = 0.7f
-                
-                // Reset yaw offset so it gets recaptured on first sensor update
-                isYawOffsetInitialized = false
-                yawOffset = 0f
-                
-                hideLoading()
-                hideError()
-                hideAbout()
+            if (inputStream != null) {
+                loadPanoramaFromStream(inputStream)
+                inputStream.close()
             } else {
-                showError("Failed to decode image.\nPlease try with a different image format.")
+                showError("Failed to open image.")
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -302,33 +284,57 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun loadExamplePanorama() {
         showLoading()
-        
         try {
             val inputStream = assets.open("examples/Sihlwald.jpg")
-            val bitmap = BitmapFactory.decodeStream(inputStream)
+            loadPanoramaFromStream(inputStream)
             inputStream.close()
-
-            if (bitmap != null) {
-                val panorama = PLSphericalPanorama()
-                panorama.setImage(PLImage(bitmap, false))
-                plManager.panorama = panorama
-                
-                val camera = plManager.camera as PLCamera
-                camera.zoomFactor = 0.7f
-                
-                isYawOffsetInitialized = false
-                yawOffset = 0f
-                
-                hideLoading()
-                hideError()
-                hideAbout()
-            } else {
-                showError("Failed to decode example image.")
-            }
         } catch (e: Exception) {
             e.printStackTrace()
             showError("Error loading example image: ${e.message}")
         }
+    }
+
+    private fun loadPanoramaFromStream(inputStream: InputStream) {
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        if (bitmap == null) {
+            showError("Failed to decode image.\nPlease try with a different image format.")
+            return
+        }
+
+        val scaledBitmap = scaleImageIfNeeded(bitmap)
+        val panorama = PLSphericalPanorama()
+        panorama.setImage(PLImage(scaledBitmap, false))
+        plManager.panorama = panorama
+
+        val camera = plManager.camera as PLCamera
+        camera.zoomFactor = 0.7f
+
+        isYawOffsetInitialized = false
+        yawOffset = 0f
+
+        hideLoading()
+        hideError()
+        hideAbout()
+    }
+
+    private fun scaleImageIfNeeded(bitmap: Bitmap): Bitmap {
+        val maxSize = PLConstants.kTextureMaxSize
+        val width = bitmap.width
+        val height = bitmap.height
+
+        if (width <= maxSize && height <= maxSize) {
+            return bitmap
+        }
+
+        val (newWidth, newHeight) = if (width > height) {
+            maxSize to (height.toLong() * maxSize / width).toInt()
+        } else {
+            (width.toLong() * maxSize / height).toInt() to maxSize
+        }
+
+        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        bitmap.recycle()
+        return scaledBitmap
     }
 
     private fun showLoading() {
