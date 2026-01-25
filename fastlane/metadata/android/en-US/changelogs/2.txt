@@ -1,0 +1,5 @@
+UX improvements and welcome screen.
+
+Features:
+* Added a more useful welcome screen when opening the app without an image
+* Button to choose a file from within the app

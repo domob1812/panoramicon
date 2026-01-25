@@ -3,4 +3,9 @@
     <string name="app_name">Panoramicon</string>
     <string name="loading_panorama">Loading panorama…</string>
     <string name="error_loading_image">Failed to load image.\nPlease try with a different panoramic image.</string>
+    <string name="about_license">This application is free software released under the GNU General Public License v3.</string>
+    <string name="about_based_on">Based on PanoramaGL.</string>
+    <string name="about_project_url">https://github.com/domob1812/panoramicon</string>
+    <string name="about_instructions">To view a panorama, open an image with this app or share an image to this app.</string>
+    <string name="button_open_image">Open image</string>
 </resources>

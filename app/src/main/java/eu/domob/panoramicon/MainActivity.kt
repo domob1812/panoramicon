@@ -31,11 +31,17 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 import androidx.appcompat.app.AppCompatActivity
@@ -53,6 +59,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var loadingProgress: ProgressBar
     private lateinit var loadingText: TextView
     private lateinit var errorText: TextView
+    private lateinit var aboutContainer: ScrollView
+    private lateinit var aboutVersion: TextView
+    private lateinit var aboutBasedOn: TextView
+    private lateinit var aboutProjectUrl: TextView
+    private lateinit var buttonOpenImage: Button
     private var isSystemUIVisible = false
     private lateinit var gestureDetector: GestureDetector
     private var wasInertiaActiveOnTouch = false
@@ -85,6 +96,48 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         loadingProgress = findViewById(R.id.loading_progress)
         loadingText = findViewById(R.id.loading_text)
         errorText = findViewById(R.id.error_text)
+        aboutContainer = findViewById(R.id.about_container)
+        aboutVersion = findViewById(R.id.about_version)
+        aboutBasedOn = findViewById(R.id.about_based_on)
+        aboutProjectUrl = findViewById(R.id.about_project_url)
+        buttonOpenImage = findViewById(R.id.button_open_image)
+
+        // Set version text
+        val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+        aboutVersion.text = "Version $versionName"
+
+        // Set up "Based on PanoramaGL" with clickable link
+        val basedOnText = getString(R.string.about_based_on)
+        val spannableBasedOn = SpannableString(basedOnText)
+        val startIndex = basedOnText.indexOf("PanoramaGL")
+        if (startIndex != -1) {
+            val endIndex = startIndex + "PanoramaGL".length
+            spannableBasedOn.setSpan(object : ClickableSpan() {
+                override fun onClick(widget: View) {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/hannesa2/panoramaGL"))
+                    startActivity(intent)
+                }
+            }, startIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        aboutBasedOn.text = spannableBasedOn
+        aboutBasedOn.movementMethod = LinkMovementMethod.getInstance()
+
+        // Set up project URL with clickable link
+        val projectUrl = getString(R.string.about_project_url)
+        val spannableProjectUrl = SpannableString(projectUrl)
+        spannableProjectUrl.setSpan(object : ClickableSpan() {
+            override fun onClick(widget: View) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(projectUrl))
+                startActivity(intent)
+            }
+        }, 0, projectUrl.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        aboutProjectUrl.text = spannableProjectUrl
+        aboutProjectUrl.movementMethod = LinkMovementMethod.getInstance()
+
+        // Set up button click listener
+        buttonOpenImage.setOnClickListener {
+            openImagePicker()
+        }
 
         // Enable edge-to-edge display
         enableEdgeToEdge()
@@ -172,6 +225,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         // Track inertia state for touch handling
         gestureDetector.setIsLongpressEnabled(false)
 
+        // Handle back button
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (aboutContainer.visibility != View.VISIBLE) {
+                    // Currently viewing panorama, go back to about screen
+                    showAbout()
+                } else {
+                    // On about screen, exit app
+                    finish()
+                }
+            }
+        })
+
         // Handle intent (image sharing/opening)
         handleIntent(intent)
     }
@@ -188,8 +254,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 uri?.let { loadPanoramaFromUri(it) }
             }
             else -> {
-                // No image provided, show error
-                showError("No panoramic image provided.\nPlease share or open an image with this app.")
+                // No image provided, show about screen
+                showAbout()
             }
         }
     }
@@ -219,6 +285,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 
                 hideLoading()
                 hideError()
+                hideAbout()
             } else {
                 showError("Failed to decode image.\nPlease try with a different image format.")
             }
@@ -239,12 +306,46 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun showError(message: String) {
         hideLoading()
+        hideAbout()
         errorText.text = message
         errorText.visibility = View.VISIBLE
     }
 
     private fun hideError() {
         errorText.visibility = View.GONE
+    }
+
+    private fun showAbout() {
+        hideLoading()
+        hideError()
+        panoramaContainer.visibility = View.GONE
+        aboutContainer.visibility = View.VISIBLE
+        showSystemUI()
+    }
+
+    private fun hideAbout() {
+        aboutContainer.visibility = View.GONE
+        panoramaContainer.visibility = View.VISIBLE
+        hideSystemUI()
+    }
+
+    private fun openImagePicker() {
+        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        intent.type = "image/*"
+        startActivityForResult(intent, REQUEST_IMAGE_PICK)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_IMAGE_PICK && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                loadPanoramaFromUri(uri)
+            }
+        }
+    }
+
+    companion object {
+        private const val REQUEST_IMAGE_PICK = 1
     }
 
     private fun enableEdgeToEdge() {
@@ -281,7 +382,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         super.onResume()
         plManager.onResume()
         enableEdgeToEdge()
-        hideSystemUI()
+        if (aboutContainer.visibility != View.VISIBLE) {
+            hideSystemUI()
+        }
         rotationSensor?.also { sensor ->
             sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
         }
@@ -382,7 +485,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             enableEdgeToEdge()
-            hideSystemUI()
+            if (aboutContainer.visibility != View.VISIBLE) {
+                hideSystemUI()
+            }
         }
     }
 
