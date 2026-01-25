@@ -8,4 +8,5 @@
     <string name="about_project_url">https://github.com/domob1812/panoramicon</string>
     <string name="about_instructions">To view a panorama, open an image with this app or share an image to this app.</string>
     <string name="button_open_image">Open image</string>
+    <string name="button_example">Example</string>
 </resources>

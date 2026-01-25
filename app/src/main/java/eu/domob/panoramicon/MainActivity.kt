@@ -64,6 +64,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var aboutBasedOn: TextView
     private lateinit var aboutProjectUrl: TextView
     private lateinit var buttonOpenImage: Button
+    private lateinit var buttonExample: Button
     private var isSystemUIVisible = false
     private lateinit var gestureDetector: GestureDetector
     private var wasInertiaActiveOnTouch = false
@@ -101,6 +102,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         aboutBasedOn = findViewById(R.id.about_based_on)
         aboutProjectUrl = findViewById(R.id.about_project_url)
         buttonOpenImage = findViewById(R.id.button_open_image)
+        buttonExample = findViewById(R.id.button_example)
 
         // Set version text
         val versionName = packageManager.getPackageInfo(packageName, 0).versionName
@@ -134,9 +136,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         aboutProjectUrl.text = spannableProjectUrl
         aboutProjectUrl.movementMethod = LinkMovementMethod.getInstance()
 
-        // Set up button click listener
+        // Set up button click listeners
         buttonOpenImage.setOnClickListener {
             openImagePicker()
+        }
+        buttonExample.setOnClickListener {
+            loadExamplePanorama()
         }
 
         // Enable edge-to-edge display
@@ -292,6 +297,37 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         } catch (e: Exception) {
             e.printStackTrace()
             showError("Error loading image: ${e.message}")
+        }
+    }
+
+    private fun loadExamplePanorama() {
+        showLoading()
+        
+        try {
+            val inputStream = assets.open("examples/Sihlwald.jpg")
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+
+            if (bitmap != null) {
+                val panorama = PLSphericalPanorama()
+                panorama.setImage(PLImage(bitmap, false))
+                plManager.panorama = panorama
+                
+                val camera = plManager.camera as PLCamera
+                camera.zoomFactor = 0.7f
+                
+                isYawOffsetInitialized = false
+                yawOffset = 0f
+                
+                hideLoading()
+                hideError()
+                hideAbout()
+            } else {
+                showError("Failed to decode example image.")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showError("Error loading example image: ${e.message}")
         }
     }
 
