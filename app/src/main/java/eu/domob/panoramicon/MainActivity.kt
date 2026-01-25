@@ -45,6 +45,7 @@ import android.widget.RelativeLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -298,6 +299,22 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val bitmap = BitmapFactory.decodeStream(inputStream)
         if (bitmap == null) {
             showError("Failed to decode image.\nPlease try with a different image format.")
+            return
+        }
+
+        val width = bitmap.width
+        val height = bitmap.height
+
+        if (width != 2 * height) {
+            val aspectRatio = width.toDouble() / height.toDouble()
+            bitmap.recycle()
+            hideLoading()
+            showAbout()
+            AlertDialog.Builder(this)
+                .setTitle("Invalid Image")
+                .setMessage("The selected image does not appear to be a spherical panorama in equirectangular projection.\n\nSpherical panoramas must have an aspect ratio of exactly 2:1 (width:height).\n\nThis image has an aspect ratio of ${String.format("%.2f", aspectRatio)}:1.")
+                .setPositiveButton("OK", null)
+                .show()
             return
         }
 
