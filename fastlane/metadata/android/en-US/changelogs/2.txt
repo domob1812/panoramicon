@@ -4,3 +4,4 @@ Features:
 * Added a more useful welcome screen when opening the app without an image
 * Button to choose a file from within the app or to show an example image
 * Properly handle high-resolution images beyond 8'192 x 4'096 pixels
+* Share a link to Panoramicon to open images from the web directly

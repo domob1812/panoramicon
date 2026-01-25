@@ -6,7 +6,8 @@
     <string name="about_license">This application is free software released under the GNU General Public License v3.</string>
     <string name="about_based_on">Based on PanoramaGL.</string>
     <string name="about_project_url">https://github.com/domob1812/panoramicon</string>
-    <string name="about_instructions">To view a panorama, open an image with this app or share an image to this app.</string>
+    <string name="about_instructions">To view a panorama, open an image with this app, share an image to this app, or share a link to an image.</string>
     <string name="button_open_image">Open image</string>
     <string name="button_example">Example</string>
+    <string name="button_cancel">Cancel</string>
 </resources>

@@ -8,7 +8,7 @@ A simple Android app for viewing spherical panoramic images using the
 - View 360° spherical panoramic images
 - Touch navigation (pan, zoom)
 - Gyroscope/accelerometer support for motion-based navigation
-- Intent handling for opening/sharing images from other apps
+- Intent handling for opening/sharing images from other apps and the web
 - Fullscreen immersive viewing experience
 
 ## Usage
@@ -18,6 +18,7 @@ The app registers to handle image viewing intents, so you can:
 1. Share an image to Panoramicon from any gallery or file manager
 2. Choose "Open with Panoramicon" when viewing images
 3. Launch directly from file managers that support intent filtering
+4. Share a link to a panorama image from the browser or other apps
 
 ### Navigation
 - **Touch**: Drag to pan around the panorama
