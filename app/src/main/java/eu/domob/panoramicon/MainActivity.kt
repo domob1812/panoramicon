@@ -325,7 +325,14 @@ class MainActivity : AppCompatActivity() {
                 val width = bitmap.width
                 val height = bitmap.height
 
-                if (width != 2 * height) {
+                /* If the original panorama had an exact 2:1 aspect ratio
+                   but it was scaled by a floating-point factor and then
+                   the dimensions rounded, it may be that the image we have
+                   is off by up to two pixels.  Accept this, as it is a tiny
+                   divergence (that won't cause any display issues) and it
+                   is for a potentially valid reason in practice.  */
+                val aspectDifference = width - 2 * height
+                if (aspectDifference > 2 || aspectDifference < -2) {
                     val aspectRatio = width.toDouble() / height.toDouble()
                     bitmap.recycle()
                     handler.post {
@@ -361,14 +368,18 @@ class MainActivity : AppCompatActivity() {
         val width = bitmap.width
         val height = bitmap.height
 
-        if (width <= maxSize && height <= maxSize) {
+        /* We want to scale the image down if it is too large, and if
+           the aspect ratio is not exactly 2:1 (perhaps because the original
+           image was scaled already), we want to bring it to exactly 2:1.  */
+
+        if (width <= maxSize && height <= maxSize && width == 2 * height) {
             return bitmap
         }
 
-        val (newWidth, newHeight) = if (width > height) {
-            maxSize to (height.toLong() * maxSize / width).toInt()
+        val (newWidth, newHeight) = if (width > maxSize) {
+            maxSize to maxSize / 2
         } else {
-            (width.toLong() * maxSize / height).toInt() to maxSize
+            2 * height to height
         }
 
         val scaledBitmap = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
