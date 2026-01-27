@@ -47,7 +47,7 @@ gradle assembleDebug
 
 ## Dependencies
 
-- PanoramaGL library (via JitPack)
+- PanoramaGL library (via submodule)
 - AndroidX libraries
 - Kotlin
 
