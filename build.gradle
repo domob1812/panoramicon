@@ -10,6 +10,26 @@ buildscript {
     }
 }
 
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileOptions {
+                    sourceCompatibility = JavaVersion.VERSION_21
+                    targetCompatibility = JavaVersion.VERSION_21
+                }
+            }
+            
+            // Override any jvmToolchain settings from the subproject
+            if (project.extensions.findByName('kotlin') != null) {
+                project.kotlin {
+                    jvmToolchain(21)
+                }
+            }
+        }
+    }
+}
+
 tasks.register('clean', Delete) {
     delete rootProject.buildDir
 }
