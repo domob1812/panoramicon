@@ -15,6 +15,15 @@ android {
         versionName "1.1.1"
     }
 
+    signingConfigs {
+      release {
+        storeFile file(System.getenv("KEYSTORE_PATH"))
+        storePassword System.getenv("KEYSTORE_PASSWORD")
+        keyAlias "panoramicon"
+        keyPassword System.getenv("KEYSTORE_PASSWORD")
+      }
+    }
+
     buildFeatures {
         buildConfig = true
     }
@@ -23,6 +32,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            signingConfig signingConfigs.release
         }
     }
     
