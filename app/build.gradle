@@ -16,11 +16,15 @@ android {
     }
 
     signingConfigs {
-      release {
-        storeFile file(System.getenv("KEYSTORE_PATH"))
-        storePassword System.getenv("KEYSTORE_PASSWORD")
-        keyAlias "panoramicon"
-        keyPassword System.getenv("KEYSTORE_PASSWORD")
+      def keystorePath = System.getenv("KEYSTORE_PATH")
+      def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+      if (keystorePath != null) {
+        release {
+          storeFile file(keystorePath)
+          storePassword keystorePassword
+          keyAlias "panoramicon"
+          keyPassword keystorePassword
+        }
       }
     }
 
@@ -32,7 +36,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            signingConfig signingConfigs.release
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     
