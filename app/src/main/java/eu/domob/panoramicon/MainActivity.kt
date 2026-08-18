@@ -19,8 +19,6 @@
 package eu.domob.panoramicon
 
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -43,7 +41,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.panoramagl.*
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 
 class MainActivity : AppCompatActivity() {
@@ -205,38 +204,7 @@ class MainActivity : AppCompatActivity() {
         if (scheme == "http" || scheme == "https") {
             loadPanoramaFromUrl(uri.toString())
         } else {
-            showLoading("Loading image...")
-            val handler = Handler(Looper.getMainLooper())
-            Thread {
-                try {
-                    val inputStream: InputStream? = contentResolver.openInputStream(uri)
-                    if (inputStream != null) {
-                        val bytes = inputStream.readBytes()
-                        inputStream.close()
-                        
-                        handler.post {
-                            loadingText.text = "Processing image..."
-                            try {
-                                val processedStream = bytes.inputStream()
-                                loadPanoramaFromStream(processedStream)
-                                processedStream.close()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                showError("Error processing image: ${e.message}")
-                            }
-                        }
-                    } else {
-                        handler.post {
-                            showError("Failed to open image.")
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    handler.post {
-                        showError("Error loading image: ${e.message}")
-                    }
-                }
-            }.start()
+            processImageSource(sourceFactory = { contentResolver.openInputStream(uri) })
         }
     }
 
@@ -255,21 +223,13 @@ class MainActivity : AppCompatActivity() {
                 loadingText.text = String.format("Downloading image... %d%%\n%.1f MB / %.1f MB", percentage, downloadedMB, totalMB)
             }
 
-            override fun onSuccess(data: ByteArray) {
+            override fun onSuccess(data: File) {
                 isDownloading = false
                 buttonCancelDownload.visibility = View.GONE
                 loadingProgress.isIndeterminate = true
                 loadingProgress.progress = 0
-                loadingText.text = "Processing image..."
-                Handler(Looper.getMainLooper()).post {
-                    try {
-                        val processedStream = data.inputStream()
-                        loadPanoramaFromStream(processedStream)
-                        processedStream.close()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        showError("Error processing image: ${e.message}")
-                    }
+                processImageSource({ FileInputStream(data) }) {
+                    data.delete()
                 }
             }
 
@@ -282,109 +242,56 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadExamplePanorama() {
+        processImageSource(sourceFactory = { assets.open("examples/Sihlwald.jpg") })
+    }
+
+    private fun processImageSource(sourceFactory: () -> InputStream?, cleanup: () -> Unit = {}) {
         showLoading("Loading image...")
         val handler = Handler(Looper.getMainLooper())
         Thread {
             try {
-                val inputStream = assets.open("examples/Sihlwald.jpg")
-                val bytes = inputStream.readBytes()
-                inputStream.close()
-                
-                handler.post {
-                    loadingText.text = "Processing image..."
-                    try {
-                        val processedStream = bytes.inputStream()
-                        loadPanoramaFromStream(processedStream)
-                        processedStream.close()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        showError("Error processing image: ${e.message}")
+                when (val result = PanoramaImageDecoder.decode(sourceFactory)) {
+                    is PanoramaImageDecoder.Result.Success -> {
+                        val bitmap = result.bitmap
+                        handler.post {
+                            loadingText.text = "Processing image..."
+                            panoramaViewer.setImage(bitmap)
+                            hideLoading()
+                            hideError()
+                            hideAbout()
+                        }
                     }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                handler.post {
-                    showError("Error loading example image: ${e.message}")
-                }
-            }
-        }.start()
-    }
-
-    private fun loadPanoramaFromStream(inputStream: InputStream) {
-        val handler = Handler(Looper.getMainLooper())
-        Thread {
-            try {
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                if (bitmap == null) {
-                    handler.post {
-                        showError("Failed to decode image.\nPlease try with a different image format.")
+                    is PanoramaImageDecoder.Result.InvalidAspect -> {
+                        handler.post {
+                            showInvalidAspectDialog(result.width, result.height)
+                        }
                     }
-                    return@Thread
-                }
-
-                val width = bitmap.width
-                val height = bitmap.height
-
-                /* If the original panorama had an exact 2:1 aspect ratio
-                   but it was scaled by a floating-point factor and then
-                   the dimensions rounded, it may be that the image we have
-                   is off by up to two pixels.  Accept this, as it is a tiny
-                   divergence (that won't cause any display issues) and it
-                   is for a potentially valid reason in practice.  */
-                val aspectDifference = width - 2 * height
-                if (aspectDifference > 2 || aspectDifference < -2) {
-                    val aspectRatio = width.toDouble() / height.toDouble()
-                    bitmap.recycle()
-                    handler.post {
-                        hideLoading()
-                        showAbout()
-                        AlertDialog.Builder(this)
-                            .setTitle("Invalid Image")
-                            .setMessage("The selected image does not appear to be a spherical panorama in equirectangular projection.\n\nSpherical panoramas must have an aspect ratio of exactly 2:1 (width:height).\n\nThis image has an aspect ratio of ${String.format("%.2f", aspectRatio)}:1.")
-                            .setPositiveButton("OK", null)
-                            .show()
+                    is PanoramaImageDecoder.Result.Failure -> {
+                        handler.post {
+                            showError(result.message)
+                        }
                     }
-                    return@Thread
-                }
-
-                val scaledBitmap = scaleImageIfNeeded(bitmap)
-                handler.post {
-                    panoramaViewer.setImage(scaledBitmap)
-                    hideLoading()
-                    hideError()
-                    hideAbout()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 handler.post {
                     showError("Error processing image: ${e.message}")
                 }
+            } finally {
+                cleanup()
             }
         }.start()
     }
 
-    private fun scaleImageIfNeeded(bitmap: Bitmap): Bitmap {
-        val maxSize = PLConstants.kTextureMaxSize
-        val width = bitmap.width
-        val height = bitmap.height
-
-        /* We want to scale the image down if it is too large, and if
-           the aspect ratio is not exactly 2:1 (perhaps because the original
-           image was scaled already), we want to bring it to exactly 2:1.  */
-
-        if (width <= maxSize && height <= maxSize && width == 2 * height) {
-            return bitmap
-        }
-
-        val (newWidth, newHeight) = if (width > maxSize) {
-            maxSize to maxSize / 2
-        } else {
-            2 * height to height
-        }
-
-        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
-        bitmap.recycle()
-        return scaledBitmap
+    private fun showInvalidAspectDialog(width: Int, height: Int) {
+        hideLoading()
+        showAbout()
+        val aspectRatio = width.toDouble() / height.toDouble()
+        AlertDialog.Builder(this)
+            .setTitle("Invalid Image")
+            .setMessage("The selected image does not appear to be a spherical panorama in equirectangular projection.\n\nSpherical panoramas must have an aspect ratio of exactly 2:1 (width:height).\n\nThis image has an aspect ratio of ${String.format("%.2f", aspectRatio)}:1.")
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun showLoading(message: String = "Loading...", isDownload: Boolean = false) {

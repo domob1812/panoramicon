@@ -23,6 +23,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -35,7 +37,7 @@ class PanoramaNetworkLoader(private val context: Context) {
     interface LoadCallback {
         fun onProgress(message: String)
         fun onDownloadProgress(bytesDownloaded: Long, totalBytes: Long)
-        fun onSuccess(data: ByteArray)
+        fun onSuccess(data: File)
         fun onError(message: String)
     }
 
@@ -62,6 +64,8 @@ class PanoramaNetworkLoader(private val context: Context) {
         callback.onProgress("Downloading image...")
         val handler = Handler(Looper.getMainLooper())
         currentThread = Thread {
+            var tempFile: File? = null
+            var delivered = false
             try {
                 if (cancelled) return@Thread
                 val connection = URL(url).openConnection() as HttpURLConnection
@@ -74,19 +78,17 @@ class PanoramaNetworkLoader(private val context: Context) {
 
                 if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                     val contentLength = connection.contentLengthLong
+                    tempFile = File.createTempFile("panorama-", ".img", context.cacheDir)
                     val inputStream = connection.inputStream
-                    val bytes = if (contentLength > 0) {
-                        readBytesWithProgress(inputStream, contentLength, handler, callback)
-                    } else {
-                        inputStream.readBytes()
-                    }
+                    downloadWithProgress(inputStream, contentLength, tempFile!!, handler, callback)
                     inputStream.close()
                     connection.disconnect()
 
                     if (!cancelled) {
                         handler.post {
-                            callback.onSuccess(bytes)
+                            callback.onSuccess(tempFile)
                         }
+                        delivered = true
                     }
                 } else {
                     connection.disconnect()
@@ -112,38 +114,48 @@ class PanoramaNetworkLoader(private val context: Context) {
                         callback.onError("Error downloading image: ${e.message}")
                     }
                 }
+            } finally {
+                if (tempFile != null && !delivered) {
+                    tempFile.delete()
+                }
             }
         }
         currentThread?.start()
     }
 
-    private fun readBytesWithProgress(
+    private fun downloadWithProgress(
         inputStream: InputStream,
         totalBytes: Long,
+        destFile: File,
         handler: Handler,
         callback: LoadCallback
-    ): ByteArray {
+    ) {
         val buffer = ByteArray(8192)
-        val output = java.io.ByteArrayOutputStream()
-        var bytesRead: Int
-        var totalRead: Long = 0
-        var lastReportedProgress = 0
+        FileOutputStream(destFile).use { output ->
+            var bytesRead: Int
+            var totalRead: Long = 0
+            var lastReportedProgress = -1
 
-        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-            if (cancelled) {
-                throw InterruptedException("Download cancelled")
-            }
-            output.write(buffer, 0, bytesRead)
-            totalRead += bytesRead
-            val progress = ((totalRead * 100) / totalBytes).toInt()
-            if (progress != lastReportedProgress) {
-                lastReportedProgress = progress
-                handler.post {
-                    callback.onDownloadProgress(totalRead, totalBytes)
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                if (cancelled) {
+                    throw InterruptedException("Download cancelled")
+                }
+                output.write(buffer, 0, bytesRead)
+                totalRead += bytesRead
+                if (totalBytes > 0) {
+                    val progress = ((totalRead * 100) / totalBytes).toInt()
+                    if (progress != lastReportedProgress) {
+                        lastReportedProgress = progress
+                        handler.post {
+                            callback.onDownloadProgress(totalRead, totalBytes)
+                        }
+                    }
                 }
             }
-        }
 
-        return output.toByteArray()
+            if (totalBytes > 0 && totalRead < totalBytes) {
+                throw java.io.IOException("Download incomplete: received $totalRead of $totalBytes bytes.")
+            }
+        }
     }
 }
