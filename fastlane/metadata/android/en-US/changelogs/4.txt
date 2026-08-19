@@ -1,0 +1,1 @@
+- Improved loading of very large images (less chance of oom crashes)
