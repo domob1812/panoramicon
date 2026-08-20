@@ -10,4 +10,8 @@
     <string name="button_open_image">Open image</string>
     <string name="button_example">Example</string>
     <string name="button_cancel">Cancel</string>
+    <string name="mode_toggle_motion">View with device orientation</string>
+    <string name="mode_toggle_manual">Control manually</string>
+    <string name="toast_mode_motion">Device orientation</string>
+    <string name="toast_mode_manual">Manual control</string>
 </resources>
