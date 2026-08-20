@@ -1,1 +1,2 @@
+- Added support for partial spheres with GPano metadata specifying crops
 - Improved loading of very large images (less chance of oom crashes)
