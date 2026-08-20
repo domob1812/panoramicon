@@ -20,6 +20,7 @@ package eu.domob.panoramicon
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import com.panoramagl.PLConstants
 import java.io.InputStream
 
@@ -48,29 +49,53 @@ object PanoramaImageDecoder {
             return Result.Failure(describeNonImageContent(sourceFactory))
         }
 
-        /* If the original panorama had an exact 2:1 aspect ratio but it
-           was scaled by a floating-point factor and then the dimensions
-           rounded, it may be that the image we have is off by up to two
-           pixels.  Accept this, as it is a tiny divergence (that won't
-           cause any display issues) and it is for a potentially valid
-           reason in practice.  */
-        val aspectDifference = width - 2 * height
-        if (aspectDifference > 2 || aspectDifference < -2) {
+        /* Read the GPano XMP metadata that describes how the image is
+           cropped out of a larger full panorama.  If there is none, infer
+           metadata for an uncropped full panorama, so that both cases
+           share the same code path.  */
+        val raw = GpanoXmp.read(sourceFactory)
+            ?: GpanoRaw(width, height, width, height, 0, 0)
+
+        /* Normalize the metadata with respect to the actual image
+           dimensions.  This also performs the 2:1 aspect ratio check for
+           the full panorama (which is the whole image in the case of
+           inferred metadata).  */
+        val gpano = GpanoXmp.normalizeGpano(raw, width, height)
+        if (gpano == null) {
             return Result.InvalidAspect(width, height)
         }
 
-        /* Subsample so that the decoded bitmap is no wider than the
+        /* Subsample so that the repadded bitmap is no wider than the
            maximum texture size.  This avoids allocating a huge
            full-resolution bitmap.  */
+        val sample = computeSampleSize(gpano.fullW, PLConstants.kTextureMaxSize)
         val options = BitmapFactory.Options().apply {
-            inSampleSize = computeSampleSize(width, PLConstants.kTextureMaxSize)
+            inSampleSize = sample
         }
         val bitmap = sourceFactory()?.use { BitmapFactory.decodeStream(it, null, options) }
         if (bitmap == null) {
             return Result.Failure("Failed to decode image.")
         }
 
-        return Result.Success(scaleToPowerOfTwo(bitmap))
+        /* Repad the (possibly cropped) image into a black-filled full
+           panorama, and scale it to a power-of-two, 2:1 size.  */
+        val full = repadToFullPano(bitmap, gpano, sample)
+        return Result.Success(scaleToPowerOfTwo(full))
+    }
+
+    /* Repad the decoded crop into a black-filled bitmap of the full
+       panorama dimensions.  The crop is drawn at its correct position,
+       and any part of the full panorama not covered by the crop remains
+       black.  */
+    private fun repadToFullPano(crop: Bitmap, gpano: Gpano, sample: Int): Bitmap {
+        val fullW = (gpano.fullW + sample - 1) / sample
+        val fullH = (gpano.fullH + sample - 1) / sample
+        val result = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
+        result.eraseColor(0xFF000000.toInt())
+        val canvas = Canvas(result)
+        canvas.drawBitmap(crop, gpano.left / sample.toFloat(), gpano.top / sample.toFloat(), null)
+        crop.recycle()
+        return result
     }
 
     /* Give a more helpful error message when the content cannot be

@@ -289,7 +289,7 @@ class MainActivity : AppCompatActivity() {
         val aspectRatio = width.toDouble() / height.toDouble()
         AlertDialog.Builder(this)
             .setTitle("Invalid Image")
-            .setMessage("The selected image does not appear to be a spherical panorama in equirectangular projection.\n\nSpherical panoramas must have an aspect ratio of exactly 2:1 (width:height).\n\nThis image has an aspect ratio of ${String.format("%.2f", aspectRatio)}:1.")
+            .setMessage("The selected image does not appear to be a spherical panorama in equirectangular projection.\n\nSpherical panoramas must have an aspect ratio of 2:1 (width:height), unless they are partial panoramas that carry the required Google Photo Sphere (GPano) XMP metadata.\n\nThis image has an aspect ratio of ${String.format("%.2f", aspectRatio)}:1.")
             .setPositiveButton("OK", null)
             .show()
     }
