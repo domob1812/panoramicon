@@ -47,6 +47,8 @@ class PanoramaViewer(
     private var yawOffset: Float = 0f
     private var isYawOffsetInitialized = false
     private var currentRotationMatrix: FloatArray? = null
+    private var manualBase: FloatArray? = null
+    private var manualMode = false
 
     private var swipeStartX = 0f
     private var swipeStartY = 0f
@@ -98,7 +100,8 @@ class PanoramaViewer(
                     return false
                 }
 
-                val horizonDir = getHorizonDirection(currentRotationMatrix) ?: return true
+                val horizonBase = if (manualMode) manualBase else currentRotationMatrix
+                val horizonDir = getHorizonDirection(horizonBase) ?: return true
 
                 isScrolling = true
                 swipeEndX = e2.x
@@ -113,6 +116,9 @@ class PanoramaViewer(
 
                 val yawChange = horizontalSwipe * 0.1f * sensitivity
                 yawOffset += yawChange
+                if (manualMode) {
+                    manualBase?.let { applySensorRotation(it) }
+                }
 
                 return true
             }
@@ -130,18 +136,72 @@ class PanoramaViewer(
 
         isYawOffsetInitialized = false
         yawOffset = 0f
+        manualBase = null
+
+        if (manualMode) {
+            manualBase = currentRotationMatrix?.copyOf()
+            manualBase?.let { applySensorRotation(it) }
+        }
+    }
+
+    fun setManualMode(enabled: Boolean) {
+        if (manualMode == enabled) {
+            return
+        }
+        manualMode = enabled
+        if (enabled) {
+            manualBase = currentRotationMatrix?.copyOf()
+        } else {
+            realignHorizon()
+            manualBase = null
+        }
+    }
+
+    private fun realignHorizon() {
+        val fresh = currentRotationMatrix ?: return
+        val frozen = manualBase
+        if (frozen != null) {
+            yawOffset += deviceAzimuth(frozen) - deviceAzimuth(fresh)
+            yawOffset = normalizeYaw(yawOffset)
+        }
+        applySensorRotation(fresh)
+    }
+
+    private fun deviceAzimuth(matrix: FloatArray): Float {
+        val orientation = FloatArray(3)
+        SensorManager.getOrientation(matrix, orientation)
+        return Math.toDegrees(orientation[0].toDouble()).toFloat()
+    }
+
+    private fun normalizeYaw(deg: Float): Float {
+        var result = deg % 360f
+        if (result > 180f) {
+            result -= 360f
+        }
+        if (result < -180f) {
+            result += 360f
+        }
+        return result
     }
 
     fun onResume() {
         plManager.onResume()
+        registerSensor()
+    }
+
+    fun onPause() {
+        unregisterSensor()
+        plManager.onPause()
+    }
+
+    private fun registerSensor() {
         rotationSensor?.also { sensor ->
             sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
-    fun onPause() {
+    private fun unregisterSensor() {
         sensorManager.unregisterListener(this)
-        plManager.onPause()
     }
 
     fun onDestroy() {
@@ -203,6 +263,9 @@ class PanoramaViewer(
                 }
 
                 yawOffset += inertiaVelocity * 0.1f
+                if (manualMode) {
+                    manualBase?.let { applySensorRotation(it) }
+                }
 
                 inertiaHandler.postDelayed(this, 16)
             }
@@ -242,31 +305,34 @@ class PanoramaViewer(
             SensorManager.getRotationMatrixFromVector(tempMatrix, event.values)
             currentRotationMatrix = tempMatrix
 
-            val axesCorrection = FloatArray(16)
-            Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
-
-            if (!isYawOffsetInitialized) {
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(tempMatrix, orientation)
-                val initialYaw = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                yawOffset = -initialYaw
-                isYawOffsetInitialized = true
+            if (!manualMode) {
+                applySensorRotation(tempMatrix)
             }
-
-            val pitchRot = FloatArray(16)
-            Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
-            val yawRot = FloatArray(16)
-            Matrix.setRotateM(yawRot, 0, 180f + yawOffset, 0f, 0f, 1f)
-            val viewCorrection = FloatArray(16)
-            Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
-
-            val intermediate = FloatArray(16)
-            Matrix.multiplyMM(intermediate, 0, axesCorrection, 0, tempMatrix, 0)
-            val rotationMatrix = FloatArray(16)
-            Matrix.multiplyMM(rotationMatrix, 0, intermediate, 0, viewCorrection, 0)
-
-            (plManager.camera as? PLCamera)?.setRotationMatrix(rotationMatrix)
         }
+    }
+
+    private fun applySensorRotation(baseMatrix: FloatArray) {
+        val axesCorrection = FloatArray(16)
+        Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
+
+        if (!isYawOffsetInitialized) {
+            yawOffset = -deviceAzimuth(baseMatrix)
+            isYawOffsetInitialized = true
+        }
+
+        val pitchRot = FloatArray(16)
+        Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
+        val yawRot = FloatArray(16)
+        Matrix.setRotateM(yawRot, 0, 180f + yawOffset, 0f, 0f, 1f)
+        val viewCorrection = FloatArray(16)
+        Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
+
+        val intermediate = FloatArray(16)
+        Matrix.multiplyMM(intermediate, 0, axesCorrection, 0, baseMatrix, 0)
+        val rotationMatrix = FloatArray(16)
+        Matrix.multiplyMM(rotationMatrix, 0, intermediate, 0, viewCorrection, 0)
+
+        (plManager.camera as? PLCamera)?.setRotationMatrix(rotationMatrix)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {

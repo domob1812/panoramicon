@@ -437,6 +437,7 @@ class MainActivity : AppCompatActivity() {
             if (isManualMode) getString(R.string.toast_mode_manual) else getString(R.string.toast_mode_motion),
             Toast.LENGTH_SHORT
         ).show()
+        panoramaViewer.setManualMode(isManualMode)
     }
 
     private fun toggleSystemUI() {
