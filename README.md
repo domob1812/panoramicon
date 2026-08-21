@@ -3,6 +3,12 @@
 A simple Android app for viewing spherical panoramic images using the
 [PanoramaGL library](https://github.com/hannesa2/panoramagl).
 
+[<img src="https://f-droid.org/badge/get-it-on.png"
+     alt="Get it on F-Droid"
+     height="80">](https://f-droid.org/packages/eu.domob.panoramicon/)
+
+Or download the latest APK from the [Releases Section](https://github.com/domob1812/panoramicon/releases/latest).
+
 ## Features
 
 - View 360° spherical panoramic images
