@@ -7,6 +7,7 @@ Features:
 • Natural camera control using device orientation sensors
 • Pinch-to-zoom gesture support
 • Smooth scrolling with momentum/inertia
+• Optional manual mode with full-sphere panning
 • Lightweight and focused on the viewing experience
 • Fullscreen immersive mode (tap to toggle system UI)
 

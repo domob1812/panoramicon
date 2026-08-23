@@ -47,19 +47,20 @@ class PanoramaViewer(
     private var yawOffset: Float = 0f
     private var isYawOffsetInitialized = false
     private var currentRotationMatrix: FloatArray? = null
+    private var manualBase: FloatArray? = null
+    private var manualMode = false
+    private var manualArc: FloatArray = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
-    private var swipeStartX = 0f
-    private var swipeStartY = 0f
+    private var lastArcballVector: FloatArray? = null
+    private var swipeStartArcballVector: FloatArray? = null
     private var swipeStartTime = 0L
-    private var swipeEndX = 0f
-    private var swipeEndY = 0f
     private var isScrolling = false
-    private var lastHorizonDirection: FloatArray? = null
     private var wasMultiTouch = false
     private var wasInertiaActiveOnTouch = false
     private val inertiaHandler = Handler(Looper.getMainLooper())
     private var inertiaRunnable: Runnable? = null
-    private var inertiaVelocity = 0f
+    private var inertiaAxis: FloatArray? = null
+    private var inertiaAngle = 0f
 
     init {
         plManager = PLManager(context).apply {
@@ -83,13 +84,11 @@ class PanoramaViewer(
 
             override fun onDown(e: MotionEvent): Boolean {
                 stopInertia()
-                swipeStartX = e.x
-                swipeStartY = e.y
                 swipeStartTime = System.currentTimeMillis()
-                swipeEndX = e.x
-                swipeEndY = e.y
                 isScrolling = false
-                lastHorizonDirection = null
+                val arcball = arcballVector(e.x, e.y)
+                lastArcballVector = arcball
+                swipeStartArcballVector = arcball
                 return true
             }
 
@@ -98,22 +97,31 @@ class PanoramaViewer(
                     return false
                 }
 
-                val horizonDir = getHorizonDirection(currentRotationMatrix) ?: return true
+                val last = lastArcballVector ?: return true
+                val current = arcballVector(e2.x, e2.y)
 
                 isScrolling = true
-                swipeEndX = e2.x
-                swipeEndY = e2.y
-                lastHorizonDirection = horizonDir
 
-                val horizontalSwipe = distanceX * horizonDir[0] + distanceY * horizonDir[1]
+                if (manualMode) {
+                    val axisAngle = arcballAxisAngle(last, current)
+                    val angleDeg = Math.toDegrees(axisAngle[3].toDouble()).toFloat()
+                    if (angleDeg > 0f) {
+                        val delta = FloatArray(16)
+                        Matrix.setRotateM(delta, 0, angleDeg, axisAngle[0], axisAngle[1], axisAngle[2])
+                        val next = FloatArray(16)
+                        Matrix.multiplyMM(next, 0, delta, 0, manualArc, 0)
+                        manualArc = next
+                        manualBase?.let { applySensorRotation(it) }
+                    }
+                } else {
+                    val pole = poleAxis() ?: return true
+                    val angleRad = signedAngleAroundAxis(last, current, pole)
+                    yawOffset -= Math.toDegrees(angleRad.toDouble()).toFloat()
+                    yawOffset = normalizeYaw(yawOffset)
+                    currentRotationMatrix?.let { applySensorRotation(it) }
+                }
 
-                val camera = plManager.camera as? PLCamera
-                val fovFactor = camera?.fov ?: 70f
-                val sensitivity = fovFactor / 70f
-
-                val yawChange = horizontalSwipe * 0.1f * sensitivity
-                yawOffset += yawChange
-
+                lastArcballVector = current
                 return true
             }
         })
@@ -130,18 +138,89 @@ class PanoramaViewer(
 
         isYawOffsetInitialized = false
         yawOffset = 0f
+        manualBase = null
+        resetManualArc()
+
+        if (manualMode) {
+            manualBase = currentRotationMatrix?.copyOf()
+            manualBase?.let { applySensorRotation(it) }
+        }
+    }
+
+    fun setManualMode(enabled: Boolean) {
+        if (manualMode == enabled) {
+            return
+        }
+        manualMode = enabled
+        if (enabled) {
+            manualBase = currentRotationMatrix?.copyOf()
+            resetManualArc()
+        } else {
+            realignHorizon()
+            manualBase = null
+        }
+    }
+
+    private fun realignHorizon() {
+        val fresh = currentRotationMatrix ?: return
+        val rcam = (plManager.camera as? PLCamera)?.getRotationMatrix()
+
+        if (rcam != null) {
+            val y180 = FloatArray(16)
+            Matrix.setRotateM(y180, 0, 180f, 0f, 1f, 0f)
+            val xm90 = FloatArray(16)
+            Matrix.setRotateM(xm90, 0, -90f, 1f, 0f, 0f)
+            val y180Rcam = FloatArray(16)
+            Matrix.multiplyMM(y180Rcam, 0, y180, 0, rcam, 0)
+            val y180RcamXm90 = FloatArray(16)
+            Matrix.multiplyMM(y180RcamXm90, 0, y180Rcam, 0, xm90, 0)
+            val freshT = FloatArray(16)
+            Matrix.transposeM(freshT, 0, fresh, 0)
+            val m = FloatArray(16)
+            Matrix.multiplyMM(m, 0, freshT, 0, y180RcamXm90, 0)
+            val angle = Math.toDegrees(Math.atan2(m[1].toDouble(), m[0].toDouble())).toFloat()
+            yawOffset = normalizeYaw(angle - 180f)
+        }
+
+        resetManualArc()
+        applySensorRotation(fresh)
+    }
+
+    private fun deviceAzimuth(matrix: FloatArray): Float {
+        val orientation = FloatArray(3)
+        SensorManager.getOrientation(matrix, orientation)
+        return Math.toDegrees(orientation[0].toDouble()).toFloat()
+    }
+
+    private fun normalizeYaw(deg: Float): Float {
+        var result = deg % 360f
+        if (result > 180f) {
+            result -= 360f
+        }
+        if (result < -180f) {
+            result += 360f
+        }
+        return result
     }
 
     fun onResume() {
         plManager.onResume()
+        registerSensor()
+    }
+
+    fun onPause() {
+        unregisterSensor()
+        plManager.onPause()
+    }
+
+    private fun registerSensor() {
         rotationSensor?.also { sensor ->
             sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
-    fun onPause() {
+    private fun unregisterSensor() {
         sensorManager.unregisterListener(this)
-        plManager.onPause()
     }
 
     fun onDestroy() {
@@ -172,13 +251,24 @@ class PanoramaViewer(
 
         if (event.actionMasked == MotionEvent.ACTION_UP && isScrolling) {
             val gestureDuration = System.currentTimeMillis() - swipeStartTime
-            val horizonDir = lastHorizonDirection
-            if (horizonDir != null && gestureDuration < 300) {
-                val deltaX = swipeEndX - swipeStartX
-                val deltaY = swipeEndY - swipeStartY
-                val horizontalDelta = -(deltaX * horizonDir[0] + deltaY * horizonDir[1])
-                if (kotlin.math.abs(horizontalDelta) > 10f) {
-                    startInertia(horizontalDelta)
+            val start = swipeStartArcballVector
+            val end = lastArcballVector
+            if (start != null && end != null && gestureDuration < 300) {
+                if (manualMode) {
+                    val axisAngle = arcballAxisAngle(start, end)
+                    val angleDeg = Math.toDegrees(axisAngle[3].toDouble()).toFloat()
+                    if (angleDeg > 1f) {
+                        startInertia(floatArrayOf(axisAngle[0], axisAngle[1], axisAngle[2]), angleDeg * 0.25f)
+                    }
+                } else {
+                    val pole = poleAxis()
+                    if (pole != null) {
+                        val angleRad = signedAngleAroundAxis(start, end, pole)
+                        val angleDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
+                        if (kotlin.math.abs(angleDeg) > 1f) {
+                            startInertia(null, angleDeg * 0.25f)
+                        }
+                    }
                 }
             }
         }
@@ -186,23 +276,36 @@ class PanoramaViewer(
         return gestureHandled
     }
 
-    private fun startInertia(horizontalDisplacement: Float) {
+    private fun startInertia(axis: FloatArray?, angle: Float) {
         stopInertia()
 
-        val camera = plManager.camera as? PLCamera
-        val fovFactor = (camera?.fov ?: 70f) / 70f
-        inertiaVelocity = horizontalDisplacement * 0.3f * fovFactor
+        inertiaAxis = axis?.copyOf()
+        inertiaAngle = angle
 
         inertiaRunnable = object : Runnable {
             override fun run() {
-                inertiaVelocity *= 0.92f
+                inertiaAngle *= 0.92f
 
-                if (kotlin.math.abs(inertiaVelocity) < 0.5f) {
+                if (kotlin.math.abs(inertiaAngle) < 0.05f) {
                     stopInertia()
                     return
                 }
 
-                yawOffset += inertiaVelocity * 0.1f
+                if (manualMode) {
+                    val axis3 = inertiaAxis
+                    if (axis3 != null) {
+                        val delta = FloatArray(16)
+                        Matrix.setRotateM(delta, 0, inertiaAngle, axis3[0], axis3[1], axis3[2])
+                        val next = FloatArray(16)
+                        Matrix.multiplyMM(next, 0, delta, 0, manualArc, 0)
+                        manualArc = next
+                        manualBase?.let { applySensorRotation(it) }
+                    }
+                } else {
+                    yawOffset -= inertiaAngle
+                    yawOffset = normalizeYaw(yawOffset)
+                    currentRotationMatrix?.let { applySensorRotation(it) }
+                }
 
                 inertiaHandler.postDelayed(this, 16)
             }
@@ -215,25 +318,112 @@ class PanoramaViewer(
             inertiaHandler.removeCallbacks(it)
             inertiaRunnable = null
         }
-        inertiaVelocity = 0f
+        inertiaAxis = null
+        inertiaAngle = 0f
     }
 
-    private fun getHorizonDirection(rotationMatrix: FloatArray?): FloatArray? {
-        if (rotationMatrix == null) return null
+    private fun arcballVector(x: Float, y: Float): FloatArray {
+        val camera = plManager.camera as? PLCamera
+        val fov = camera?.fov ?: PLConstants.kDefaultFov
+        val f = (1.0 / Math.tan(Math.toRadians((fov / 2.0).toDouble()))).toFloat()
 
-        val upX = rotationMatrix[8]
-        val upY = rotationMatrix[9]
+        val width = container.width.toFloat()
+        val height = container.height.toFloat()
 
-        val horizonX = upY
-        val horizonY = upX
+        val ndcX = (2f * x - width) / 4096f
+        val ndcY = (height - 2f * y) / 4096f
 
-        val length = kotlin.math.sqrt(horizonX * horizonX + horizonY * horizonY)
+        val dx = ndcX / f
+        val dy = ndcY / f
+        val dz = -1f
+        val dLen = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+        val ax = -dx / dLen
+        val ay = dy / dLen
+        val az = -dz / dLen / 5.12f
+        val aLen = kotlin.math.sqrt(ax * ax + ay * ay + az * az)
+        return floatArrayOf(ax / aLen, ay / aLen, az / aLen)
+    }
 
-        if (length < 0.001f) {
-            return null
+    private fun arcballAxisAngle(from: FloatArray, to: FloatArray): FloatArray {
+        val c = cross(from, to)
+        val crossLen = kotlin.math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
+        val dot = (from[0] * to[0] + from[1] * to[1] + from[2] * to[2]).coerceIn(-1f, 1f)
+
+        if (crossLen < 1e-6f) {
+            if (dot > 0f) {
+                return floatArrayOf(1f, 0f, 0f, 0f)
+            }
+            val axis = normalize(cross(from, anyPerpendicular(from)))
+            return floatArrayOf(axis[0], axis[1], axis[2], Math.PI.toFloat())
         }
 
-        return floatArrayOf(horizonX / length, horizonY / length)
+        val axis = floatArrayOf(c[0] / crossLen, c[1] / crossLen, c[2] / crossLen)
+        return floatArrayOf(axis[0], axis[1], axis[2], Math.acos(dot.toDouble()).toFloat())
+    }
+
+    private fun signedAngleAroundAxis(u0: FloatArray, u1: FloatArray, axis: FloatArray): Float {
+        val p0 = projectToPlane(u0, axis)
+        val p1 = projectToPlane(u1, axis)
+        val l0 = kotlin.math.sqrt(p0[0] * p0[0] + p0[1] * p0[1] + p0[2] * p0[2])
+        val l1 = kotlin.math.sqrt(p1[0] * p1[0] + p1[1] * p1[1] + p1[2] * p1[2])
+        if (l0 < 1e-6f || l1 < 1e-6f) {
+            return 0f
+        }
+        val a = floatArrayOf(p0[0] / l0, p0[1] / l0, p0[2] / l0)
+        val b = floatArrayOf(p1[0] / l1, p1[1] / l1, p1[2] / l1)
+        val dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).coerceIn(-1f, 1f)
+        val angle = Math.acos(dot.toDouble()).toFloat()
+        val c = cross(a, b)
+        val sign = c[0] * axis[0] + c[1] * axis[1] + c[2] * axis[2]
+        return if (sign < 0f) -angle else angle
+    }
+
+    private fun poleAxis(): FloatArray? {
+        val rcam = (plManager.camera as? PLCamera)?.getRotationMatrix() ?: return null
+        return floatArrayOf(-rcam[4], -rcam[5], -rcam[6])
+    }
+
+    private fun projectToPlane(v: FloatArray, normal: FloatArray): FloatArray {
+        val dot = v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2]
+        return floatArrayOf(
+            v[0] - dot * normal[0],
+            v[1] - dot * normal[1],
+            v[2] - dot * normal[2]
+        )
+    }
+
+    private fun cross(a: FloatArray, b: FloatArray): FloatArray {
+        return floatArrayOf(
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+        )
+    }
+
+    private fun normalize(v: FloatArray): FloatArray {
+        val len = kotlin.math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        if (len < 1e-9f) {
+            return floatArrayOf(0f, 0f, 0f)
+        }
+        return floatArrayOf(v[0] / len, v[1] / len, v[2] / len)
+    }
+
+    private fun anyPerpendicular(v: FloatArray): FloatArray {
+        val absX = kotlin.math.abs(v[0])
+        val absY = kotlin.math.abs(v[1])
+        val absZ = kotlin.math.abs(v[2])
+        val axis = if (absX < absY && absX < absZ) {
+            floatArrayOf(1f, 0f, 0f)
+        } else if (absY < absZ) {
+            floatArrayOf(0f, 1f, 0f)
+        } else {
+            floatArrayOf(0f, 0f, 1f)
+        }
+        return normalize(cross(v, axis))
+    }
+
+    private fun resetManualArc() {
+        Matrix.setIdentityM(manualArc, 0)
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -242,31 +432,37 @@ class PanoramaViewer(
             SensorManager.getRotationMatrixFromVector(tempMatrix, event.values)
             currentRotationMatrix = tempMatrix
 
-            val axesCorrection = FloatArray(16)
-            Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
-
-            if (!isYawOffsetInitialized) {
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(tempMatrix, orientation)
-                val initialYaw = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                yawOffset = -initialYaw
-                isYawOffsetInitialized = true
+            if (!manualMode) {
+                applySensorRotation(tempMatrix)
             }
-
-            val pitchRot = FloatArray(16)
-            Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
-            val yawRot = FloatArray(16)
-            Matrix.setRotateM(yawRot, 0, 180f + yawOffset, 0f, 0f, 1f)
-            val viewCorrection = FloatArray(16)
-            Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
-
-            val intermediate = FloatArray(16)
-            Matrix.multiplyMM(intermediate, 0, axesCorrection, 0, tempMatrix, 0)
-            val rotationMatrix = FloatArray(16)
-            Matrix.multiplyMM(rotationMatrix, 0, intermediate, 0, viewCorrection, 0)
-
-            (plManager.camera as? PLCamera)?.setRotationMatrix(rotationMatrix)
         }
+    }
+
+    private fun applySensorRotation(baseMatrix: FloatArray) {
+        val axesCorrection = FloatArray(16)
+        Matrix.setRotateM(axesCorrection, 0, 180f, 0f, 1f, 0f)
+
+        if (!isYawOffsetInitialized) {
+            yawOffset = -deviceAzimuth(baseMatrix)
+            isYawOffsetInitialized = true
+        }
+
+        val pitchRot = FloatArray(16)
+        Matrix.setRotateM(pitchRot, 0, 90f, 1f, 0f, 0f)
+        val yawRot = FloatArray(16)
+        Matrix.setRotateM(yawRot, 0, 180f + yawOffset, 0f, 0f, 1f)
+        val viewCorrection = FloatArray(16)
+        Matrix.multiplyMM(viewCorrection, 0, yawRot, 0, pitchRot, 0)
+
+        val intermediate = FloatArray(16)
+        Matrix.multiplyMM(intermediate, 0, axesCorrection, 0, baseMatrix, 0)
+        val rotationMatrix = FloatArray(16)
+        Matrix.multiplyMM(rotationMatrix, 0, intermediate, 0, viewCorrection, 0)
+
+        val withArc = FloatArray(16)
+        Matrix.multiplyMM(withArc, 0, manualArc, 0, rotationMatrix, 0)
+
+        (plManager.camera as? PLCamera)?.setRotationMatrix(withArc)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {

@@ -144,4 +144,17 @@
 
     </ScrollView>
 
+    <ImageButton
+        android:id="@+id/button_mode_toggle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginEnd="16dp"
+        android:background="@drawable/bg_mode_toggle"
+        android:contentDescription="@string/mode_toggle_motion"
+        android:padding="12dp"
+        android:src="@drawable/ic_mode_motion"
+        android:visibility="gone" />
+
 </RelativeLayout>

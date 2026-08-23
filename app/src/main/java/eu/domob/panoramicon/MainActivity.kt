@@ -31,13 +31,16 @@ import android.text.style.ClickableSpan
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -60,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var buttonOpenImage: Button
     private lateinit var buttonExample: Button
     private lateinit var buttonCancelDownload: Button
+    private lateinit var buttonModeToggle: ImageButton
+    private var isManualMode = false
     private var isSystemUIVisible = false
     private var isDownloading = false
     private lateinit var networkLoader: PanoramaNetworkLoader
@@ -81,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         buttonOpenImage = findViewById(R.id.button_open_image)
         buttonExample = findViewById(R.id.button_example)
         buttonCancelDownload = findViewById(R.id.button_cancel_download)
+        buttonModeToggle = findViewById(R.id.button_mode_toggle)
 
         // Initialize network loader
         networkLoader = PanoramaNetworkLoader(this)
@@ -126,6 +132,21 @@ class MainActivity : AppCompatActivity() {
         }
         buttonCancelDownload.setOnClickListener {
             cancelDownload()
+        }
+        buttonModeToggle.setOnClickListener {
+            toggleManualMode()
+        }
+
+        // Keep the toggle clear of the status bar when the system UI is shown
+        ViewCompat.setOnApplyWindowInsetsListener(buttonModeToggle) { view, insets ->
+            val topInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
+            val marginTop = topInset + (16 * resources.displayMetrics.density).toInt()
+            val params = view.layoutParams as RelativeLayout.LayoutParams
+            if (params.topMargin != marginTop) {
+                params.topMargin = marginTop
+                view.layoutParams = params
+            }
+            insets
         }
 
         // Enable edge-to-edge display
@@ -382,6 +403,7 @@ class MainActivity : AppCompatActivity() {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         isSystemUIVisible = false
+        updateModeToggleVisibility()
     }
 
     private fun showSystemUI() {
@@ -389,6 +411,33 @@ class MainActivity : AppCompatActivity() {
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
         isSystemUIVisible = true
+        updateModeToggleVisibility()
+    }
+
+    private fun updateModeToggleVisibility() {
+        val panoramaVisible = panoramaContainer.visibility == View.VISIBLE
+            && aboutContainer.visibility != View.VISIBLE
+            && loadingContainer.visibility != View.VISIBLE
+        buttonModeToggle.visibility =
+            if (isSystemUIVisible && panoramaVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun toggleManualMode() {
+        isManualMode = !isManualMode
+        buttonModeToggle.setImageResource(
+            if (isManualMode) R.drawable.ic_mode_manual else R.drawable.ic_mode_motion
+        )
+        buttonModeToggle.contentDescription = if (isManualMode) {
+            getString(R.string.mode_toggle_manual)
+        } else {
+            getString(R.string.mode_toggle_motion)
+        }
+        Toast.makeText(
+            this,
+            if (isManualMode) getString(R.string.toast_mode_manual) else getString(R.string.toast_mode_motion),
+            Toast.LENGTH_SHORT
+        ).show()
+        panoramaViewer.setManualMode(isManualMode)
     }
 
     private fun toggleSystemUI() {
