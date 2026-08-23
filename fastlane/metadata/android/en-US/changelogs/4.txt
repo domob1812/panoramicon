@@ -1,2 +1,3 @@
 - Added support for partial spheres with GPano metadata specifying crops
+- Added an optional "manual mode", with frozen view and full-sphere panning
 - Improved loading of very large images (less chance of oom crashes)

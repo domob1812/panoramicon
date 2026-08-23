@@ -8,6 +8,7 @@ A simple Android app for viewing spherical panoramic images using the
 - View 360° spherical panoramic images
 - Touch navigation (pan, zoom)
 - Gyroscope/accelerometer support for motion-based navigation
+- Manual-control mode for frozen view and full panning
 - Intent handling for opening/sharing images from other apps and the web
 - Fullscreen immersive viewing experience
 
@@ -24,6 +25,12 @@ The app registers to handle image viewing intents, so you can:
 - **Touch**: Drag to pan around the panorama
 - **Pinch**: Zoom in/out
 - **Motion**: Tilt your device to look around (if accelerometer is enabled)
+
+### Manual mode
+The app supports an optional **manual-control mode**.  The mode can be toggled
+with a button in the upper-right corner (hidden in full-screen mode, tap the
+screen to show it).  In manual mode, the sphere can fully be rotated
+by 2D panning.
 
 ## Example Images
 
